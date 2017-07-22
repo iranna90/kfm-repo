@@ -1,0 +1,11 @@
+version: '2'
+services:
+  postgres:
+    image: "docker-ngmpp-prod.artifactory.engineering-hdc.net/library/postgres:9.5.5-5"
+    container_name: kmf-database
+    volumes:
+      - "../resources:/docker-entrypoint-initdb.d/sql"
+    ports:
+      - "1111:5432"
+    environment:
+      DB_CONFIG: "kmfdetails:kmfadmin:changeme001"
