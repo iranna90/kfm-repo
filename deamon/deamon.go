@@ -9,7 +9,7 @@ import (
 
 func main() {
 	route := mux.NewRouter()
-	route.HandleFunc("/kmf/persons/{personId}", person.HandlerCreatePerson).Methods("PUT")
+	route.HandleFunc("/kmf/persons/{personId}", person.HandlerCreateOrUpdatePerson).Methods("PUT")
 	log.Println("Starting server")
 	http.ListenAndServe(":1234", route)
 }
