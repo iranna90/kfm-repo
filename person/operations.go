@@ -9,23 +9,34 @@ import (
 	. "database/sql"
 	"fmt"
 	"github.com/gorilla/mux"
+	"kmf-repo/database"
+	"kmf-repo/balance"
 )
 
 type Person struct {
-	id          int64
+	Id          int64 `json:"-"`
 	PersonId    string `json:"personId"`
 	FirstName   string `json:"firstName"`
 	LastName    string `json:"lastName"`
 	LastUpdated time.Time `json:"lastUpdated"`
 }
 
-var dataBaseConnection = getDataBaseConnection
+type PersonError struct {
+	personId string
+	message  string
+}
+
+func (p PersonError) Error() string {
+	return fmt.Sprintf("Error while doing operation for person : %s and error details are %s", p.personId, p.message)
+}
+
+var dataBaseConnection = database.GetDataBaseConnection
 
 func HandleGetPerson(w http.ResponseWriter, r *http.Request) {
 
 	params := mux.Vars(r)
 	personId := params["personId"]
-	person := findPerson(personId, dataBaseConnection())
+	person := FindPerson(personId, dataBaseConnection())
 
 	if person == nil {
 		http.Error(w, fmt.Sprintf("Person %s does not exists", personId), http.StatusNotFound)
@@ -52,19 +63,18 @@ func HandlerCreateOrUpdatePerson(w http.ResponseWriter, r *http.Request) {
 
 	db := dataBaseConnection()
 
-	retrievedPerson := findPerson(person.PersonId, db)
+	retrievedPerson := FindPerson(person.PersonId, db)
 
 	person.LastUpdated = time.Now()
 
 	// check person exists
-	fmt.Println("retrived person", retrievedPerson)
 	if retrievedPerson != nil {
 		// update
-		log.Println("Person ", person.PersonId, "already exists,So updating it")
+		log.Println("Person ", person.PersonId, "already exists, So updating it")
 		err = updatePerson(&person, db)
 	} else {
 		// insert
-		log.Println("Person ", person.PersonId, "does not exists,So inserting it")
+		log.Println("Person ", person.PersonId, "does not exists, So inserting it")
 		_, err = insertPerson(&person, db)
 	}
 
@@ -96,15 +106,7 @@ func encode(w http.ResponseWriter, data interface{}) (err error) {
 	return
 }
 
-func getDataBaseConnection() *DB {
-	db, err := Open("postgres", "host=localhost port=1111 dbname=kmfdetails user=kmfadmin password=changeme001 sslmode=disable")
-	if err != nil {
-		panic("Error while getting the data base connection")
-	}
-	return db
-}
-
-func findPerson(personId string, db *DB) (*Person) {
+func FindPerson(personId string, db *DB) (*Person) {
 
 	var person *Person
 	result := db.QueryRow("select * from persons where person_id = $1", personId)
@@ -126,6 +128,18 @@ func insertPerson(person *Person, db *DB) (int64, error) {
 	var id int64
 	err := db.QueryRow("INSERT INTO persons(person_id,first_name,last_name,last_updated) VALUES($1,$2,$3, $4) returning id;",
 		person.PersonId, person.FirstName, person.LastName, person.LastUpdated).Scan(&id)
+
+	if err != nil {
+		return id, PersonError{person.PersonId, fmt.Sprintf("Error while inserting person %s", err.Error())}
+	}
+
+	err = balance.CreateRecord(id)
+
+	if err != nil {
+		return id, PersonError{person.PersonId, fmt.Sprintf("Error while inserting initial balance record %s", err.Error())}
+	}
+
+	log.Println("Person and Initial balance for person are successfully created")
 	return id, err
 }
 
