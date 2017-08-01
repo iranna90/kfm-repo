@@ -77,7 +77,7 @@ func updateTransaction(db *sql.DB, transaction *DailyMilkTransaction) (err error
 	insertTransaction(person.Id, transaction, db)
 
 	// update total balance
-	balance, err := balance2.UpdateTotalBalance(person.Id, transaction.TotalPriceOfDay, db)
+	balance, err := balance2.AddAmountToTotalBalance(person.Id, transaction.TotalPriceOfDay, db)
 	if err != nil {
 		// TODO : Define user error
 		return

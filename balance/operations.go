@@ -22,9 +22,16 @@ func CreateRecord(personRef int64) error {
 	return err
 }
 
-func UpdateTotalBalance(personRef int64, todaysBalance int, db *sql.DB) (int64, error) {
+func AddAmountToTotalBalance(personRef int64, todaysBalance int, db *sql.DB) (int64, error) {
 	query := "UPDATE total_balance SET amount = amount + $1 where person_ref = $2 RETURNING amount"
-	var totalAmount int64
-	err := db.QueryRow(query, todaysBalance, personRef).Scan(&totalAmount)
-	return totalAmount, err
+	var newBalance int64
+	err := db.QueryRow(query, todaysBalance, personRef).Scan(&newBalance)
+	return newBalance, err
+}
+
+func RemovePayedAmountFromTotalBalance(personRef int64, todaysBalance int, db *sql.DB) (int64, error) {
+	query := "UPDATE total_balance SET amount = amount - $1 where person_ref = $2 RETURNING amount"
+	var remainingBalance int64
+	err := db.QueryRow(query, todaysBalance, personRef).Scan(&remainingBalance)
+	return remainingBalance, err
 }
