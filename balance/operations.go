@@ -29,7 +29,7 @@ func AddAmountToTotalBalance(personRef int64, todaysBalance int, db *sql.DB) (in
 	return newBalance, err
 }
 
-func RemovePayedAmountFromTotalBalance(personRef int64, todaysBalance int, db *sql.DB) (int64, error) {
+func RemovePayedAmountFromTotalBalance(personRef int64, todaysBalance int64, db *sql.DB) (int64, error) {
 	query := "UPDATE total_balance SET amount = amount - $1 where person_ref = $2 RETURNING amount"
 	var remainingBalance int64
 	err := db.QueryRow(query, todaysBalance, personRef).Scan(&remainingBalance)
