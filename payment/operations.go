@@ -12,10 +12,16 @@ import (
 	"kmf-repo/balance"
 )
 
+type NotFoundError string
+
+func (n NotFoundError) Error() string {
+	return fmt.Sprintf("Entity : %s not found", n)
+}
+
 type Payment struct {
 	Id              int64 `json:"-"`
 	PersonId        string `json:"personId"`
-	amount          int64 `json:"amount"`
+	Amount          int64 `json:"amount"`
 	PaidTo          string `json:"paidTo"`
 	Day             time.Time `json:"day"`
 	RemainingAmount int64 `json:"remainingBalance"`
@@ -38,11 +44,12 @@ func HandlePayment(w http.ResponseWriter, r *http.Request) {
 	err = updatePaymentDetails(&paymentDetails, db)
 	if err != nil {
 		switch err.(type) {
-		case person.PersonError:
+		case NotFoundError:
 			http.Error(w, fmt.Sprintf("Person : %s does not exists", paymentDetails.PersonId), http.StatusNotFound)
 			break
 		default:
 			http.Error(w, fmt.Sprintf(err.Error()), http.StatusInternalServerError)
+			break
 		}
 	}
 
@@ -56,7 +63,8 @@ func updatePaymentDetails(payment *Payment, db *sql.DB) error {
 
 	person := person.FindPerson(payment.PersonId, db)
 	if person.Id == 0 {
-		return person.PersonError{payment.PersonId, "Not found"}
+		var a NotFoundError = "Person not found"
+		return a
 	}
 
 	// insert payment
@@ -79,13 +87,13 @@ func updatePaymentDetails(payment *Payment, db *sql.DB) error {
 }
 
 func updateBalance(personRef int64, payment Payment, db *sql.DB) (remainingBalance int64, err error) {
-	remainingBalance, err = balance.RemovePayedAmountFromTotalBalance(personRef, payment.amount, db)
+	remainingBalance, err = balance.RemovePayedAmountFromTotalBalance(personRef, payment.Amount, db)
 	return
 }
 
 func insertPayment(personRef int64, payment Payment, db *sql.DB) error {
 	query := "INSERT INTO payment_details(person_ref, amount_payed, paid_to, day) VALUES ($1,$2,$3,$4)"
-	_, err := db.Exec(query, personRef, payment.amount, payment.PaidTo, payment)
+	_, err := db.Exec(query, personRef, payment.Amount, payment.PaidTo, payment.Day)
 	return err
 }
 

@@ -22,12 +22,12 @@ type Person struct {
 }
 
 type PersonError struct {
-	personId string
-	message  string
+	PersonId string
+	Message  string
 }
 
 func (p PersonError) Error() string {
-	return fmt.Sprintf("Error while doing operation for person : %s and error details are %s", p.personId, p.message)
+	return fmt.Sprintf("Error while doing operation for person : %s and error details are %s", p.PersonId, p.Message)
 }
 
 var dataBaseConnection = database.GetDataBaseConnection

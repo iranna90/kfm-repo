@@ -23,15 +23,15 @@ func CreateRecord(personRef int64) error {
 }
 
 func AddAmountToTotalBalance(personRef int64, todaysBalance int, db *sql.DB) (int64, error) {
-	query := "UPDATE total_balance SET amount = amount + $1 where person_ref = $2 RETURNING amount"
+	query := "UPDATE total_balance SET amount = amount + $1, last_updated = $2 where person_ref = $3 RETURNING amount"
 	var newBalance int64
-	err := db.QueryRow(query, todaysBalance, personRef).Scan(&newBalance)
+	err := db.QueryRow(query, todaysBalance, time.Now(), personRef).Scan(&newBalance)
 	return newBalance, err
 }
 
 func RemovePayedAmountFromTotalBalance(personRef int64, todaysBalance int64, db *sql.DB) (int64, error) {
-	query := "UPDATE total_balance SET amount = amount - $1 where person_ref = $2 RETURNING amount"
+	query := "UPDATE total_balance SET amount = amount - $1 , last_updated = $2 where person_ref = $3 RETURNING amount"
 	var remainingBalance int64
-	err := db.QueryRow(query, todaysBalance, personRef).Scan(&remainingBalance)
+	err := db.QueryRow(query, todaysBalance, time.Now(), personRef).Scan(&remainingBalance)
 	return remainingBalance, err
 }
