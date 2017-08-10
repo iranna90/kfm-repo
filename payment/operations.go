@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"fmt"
 	"kmf-repo/balance"
+	"kmf-repo/dairy"
 )
 
 type NotFoundError string
@@ -20,6 +21,7 @@ func (n NotFoundError) Error() string {
 
 type Payment struct {
 	Id              int64 `json:"-"`
+	DairyId         string `json:"dairyId"`
 	PersonId        string `json:"personId"`
 	Amount          int64 `json:"amount"`
 	PaidTo          string `json:"paidTo"`
@@ -60,22 +62,27 @@ func HandlePayment(w http.ResponseWriter, r *http.Request) {
 }
 
 func updatePaymentDetails(payment *Payment, db *sql.DB) error {
+	dairy := dairy.FindDairy(payment.DairyId, db)
+	if dairy.Id == 0 {
+		var a NotFoundError = "Dairy not found"
+		return a
+	}
 
-	person := person.FindPerson(payment.PersonId, db)
+	person := person.FindPerson(dairy.Id, payment.PersonId, db)
 	if person.Id == 0 {
 		var a NotFoundError = "Person not found"
 		return a
 	}
 
 	// insert payment
-	err := insertPayment(person.Id, *payment, db)
+	err := insertPayment(dairy.Id, person.Id, *payment, db)
 	if err != nil {
 		log.Println("Erro while inserting payment details for person : ", person.PersonId)
 		return err
 	}
 
 	// update balance
-	remainingBalance, err := updateBalance(person.Id, *payment, db)
+	remainingBalance, err := updateBalance(dairy.Id, person.Id, *payment, db)
 
 	if err != nil {
 		log.Println(fmt.Sprintf("Erro while updating remaining balance after payment : %d for person : %s", payment.Id, person.PersonId))
@@ -86,14 +93,14 @@ func updatePaymentDetails(payment *Payment, db *sql.DB) error {
 	return nil
 }
 
-func updateBalance(personRef int64, payment Payment, db *sql.DB) (remainingBalance int64, err error) {
-	remainingBalance, err = balance.RemovePayedAmountFromTotalBalance(personRef, payment.Amount, db)
+func updateBalance(dairyRef int64, personRef int64, payment Payment, db *sql.DB) (remainingBalance int64, err error) {
+	remainingBalance, err = balance.RemovePayedAmountFromTotalBalance(dairyRef, personRef, payment.Amount, db)
 	return
 }
 
-func insertPayment(personRef int64, payment Payment, db *sql.DB) error {
-	query := "INSERT INTO payment_details(person_ref, amount_payed, paid_to, day) VALUES ($1,$2,$3,$4)"
-	_, err := db.Exec(query, personRef, payment.Amount, payment.PaidTo, payment.Day)
+func insertPayment(dairyRef int64, personRef int64, payment Payment, db *sql.DB) error {
+	query := "INSERT INTO payment_details(dairy_ref, person_ref, amount_payed, paid_to, day) VALUES ($1,$2,$3,$4, $5)"
+	_, err := db.Exec(query, dairyRef, personRef, payment.Amount, payment.PaidTo, payment.Day)
 	return err
 }
 

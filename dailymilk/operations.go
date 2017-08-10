@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"database/sql"
 	"kmf-repo/person"
-	balance2 "kmf-repo/balance"
+	"kmf-repo/balance"
+	dairy2 "kmf-repo/dairy"
 )
 
 type DailyMilkTransaction struct {
 	Id              int64 `json:"-"`
+	DairyId         string `json:"dairyId"`
 	PersonId        string `json:"personId"`
 	NumberOfLiters  int8 `json:"numberOfLiters"`
 	TotalPriceOfDay int `json:"totalPriceOfTheDay"`
@@ -68,16 +70,23 @@ func updateTransaction(db *sql.DB, transaction *DailyMilkTransaction) (err error
 		return
 	}
 
-	person := person.FindPerson(transaction.PersonId, db)
-	if person == nil {
+	dairy := dairy2.FindDairy(transaction.DairyId, db)
+	if dairy.Id == 0 {
+		err = TransactionError{transaction.PersonId, "Dairy does not exitsts"}
+		return
+	}
+
+	person := person.FindPerson(dairy.Id, transaction.PersonId, db)
+	if person.Id == 0 {
 		err = TransactionError{transaction.PersonId, "Person does not exitsts"}
 		return
 	}
+
 	transaction.Day = time.Now()
 	insertTransaction(person.Id, transaction, db)
 
 	// update total balance
-	balance, err := balance2.AddAmountToTotalBalance(person.Id, transaction.TotalPriceOfDay, db)
+	balance, err := balance.AddAmountToTotalBalance(dairy.Id, person.Id, transaction.TotalPriceOfDay, db)
 	if err != nil {
 		// TODO : Define user error
 		return

@@ -11,10 +11,12 @@ import (
 	"github.com/gorilla/mux"
 	"kmf-repo/database"
 	"kmf-repo/balance"
+	"kmf-repo/dairy"
 )
 
 type Person struct {
 	Id          int64 `json:"-"`
+	DairyId     string `json:"dairyId"`
 	PersonId    string `json:"personId"`
 	FirstName   string `json:"firstName"`
 	LastName    string `json:"lastName"`
@@ -36,8 +38,16 @@ func HandleGetPerson(w http.ResponseWriter, r *http.Request) {
 
 	params := mux.Vars(r)
 	personId := params["personId"]
-	person := FindPerson(personId, dataBaseConnection())
+	dairyId := params["dairyId"]
 
+	db := dataBaseConnection()
+	dairy := dairy.FindDairy(dairyId, db)
+	if dairy.Id == 0 {
+		http.Error(w, fmt.Sprintf("Dairy deos not exists"), http.StatusNotFound)
+		return
+	}
+
+	person := FindPerson(dairy.Id, personId, db)
 	if person == nil {
 		http.Error(w, fmt.Sprintf("Person %s does not exists", personId), http.StatusNotFound)
 		return
@@ -62,8 +72,15 @@ func HandlerCreateOrUpdatePerson(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := dataBaseConnection()
+	dairy := dairy.FindDairy(person.DairyId, db)
 
-	retrievedPerson := FindPerson(person.PersonId, db)
+	if dairy == nil {
+		log.Println("Please check dairy details are correct", err)
+		http.Error(w, fmt.Sprint("Dairy does not exists", err), http.StatusBadRequest)
+		return
+	}
+
+	retrievedPerson := FindPerson(dairy.Id, person.PersonId, db)
 
 	person.LastUpdated = time.Now()
 
@@ -71,11 +88,11 @@ func HandlerCreateOrUpdatePerson(w http.ResponseWriter, r *http.Request) {
 	if retrievedPerson != nil {
 		// update
 		log.Println("Person ", person.PersonId, "already exists, So updating it")
-		err = updatePerson(&person, db)
+		err = updatePerson(dairy.Id, &person, db)
 	} else {
 		// insert
 		log.Println("Person ", person.PersonId, "does not exists, So inserting it")
-		_, err = insertPerson(&person, db)
+		_, err = insertPerson(dairy.Id, &person, db)
 	}
 
 	if err != nil {
@@ -106,10 +123,10 @@ func encode(w http.ResponseWriter, data interface{}) (err error) {
 	return
 }
 
-func FindPerson(personId string, db *DB) (*Person) {
+func FindPerson(dairyRef int64, personId string, db *DB) (*Person) {
 
 	var person *Person
-	result := db.QueryRow("select * from persons where person_id = $1", personId)
+	result := db.QueryRow("select * from persons where dairy_ref = $1 and person_id = $2", dairyRef, personId)
 	var (
 		id                               int64
 		person_id, first_name, last_name string
@@ -119,15 +136,15 @@ func FindPerson(personId string, db *DB) (*Person) {
 	if err != nil {
 		return person
 	}
-	person = &Person{id, person_id, first_name, last_name, last_update}
+	person = &Person{Id: id, PersonId: person_id, FirstName: first_name, LastName: last_name, LastUpdated: last_update}
 
 	return person
 }
 
-func insertPerson(person *Person, db *DB) (int64, error) {
+func insertPerson(dairyRef int64, person *Person, db *DB) (int64, error) {
 	var id int64
-	err := db.QueryRow("INSERT INTO persons(person_id,first_name,last_name,last_updated) VALUES($1,$2,$3, $4) returning id;",
-		person.PersonId, person.FirstName, person.LastName, person.LastUpdated).Scan(&id)
+	err := db.QueryRow("INSERT INTO persons(dairy_ref, person_id,first_name,last_name,last_updated) VALUES($1,$2,$3, $4, $5) returning id;",
+		dairyRef, person.PersonId, person.FirstName, person.LastName, person.LastUpdated).Scan(&id)
 
 	if err != nil {
 		return id, PersonError{person.PersonId, fmt.Sprintf("Error while inserting person %s", err.Error())}
@@ -143,14 +160,14 @@ func insertPerson(person *Person, db *DB) (int64, error) {
 	return id, err
 }
 
-func updatePerson(person *Person, db *DB) (err error) {
-	query := "UPDATE persons SET first_name = $1, last_name = $2, last_updated = $3 WHERE person_id =$4"
+func updatePerson(dairyRef int64, person *Person, db *DB) (err error) {
+	query := "UPDATE persons SET first_name = $1, last_name = $2, last_updated = $3 WHERE person_id =$4 and dairy_ref = $5"
 	stmt, err := db.Prepare(query)
 	if err != nil {
 		log.Println("Error while creating statement to update person", person.PersonId, err)
 		return
 	}
-	_, err = stmt.Exec(person.FirstName, person.LastName, person.LastUpdated, person.PersonId)
+	_, err = stmt.Exec(person.FirstName, person.LastName, person.LastUpdated, person.PersonId, dairyRef)
 
 	return
 }
