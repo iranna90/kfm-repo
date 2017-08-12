@@ -1,7 +1,9 @@
 -- noinspection SqlDialectInspectionForFile
 CREATE TABLE dairy (
   id       BIGSERIAL   NOT NULL,
-  dairy_id VARCHAR(50) NOT NULL
+  dairy_id VARCHAR(50) NOT NULL,
+  CONSTRAINT unique_key UNIQUE (id),
+  CONSTRAINT unique_dairy_id UNIQUE (dairy_id)
 );
 
 CREATE TABLE persons (
@@ -31,7 +33,7 @@ CREATE TABLE daily_transactions (
   total_price_of_day INT                                          NOT NULL,
   day                TIMESTAMP                                    NOT NULL,
   person_name        VARCHAR(25)                                  NOT NULL,
-  CONSTRAINT unique_dairy_id_person_id_transaction UNIQUE (dairy_ref, person_ref)
+  CONSTRAINT unique_dairy_id_person_id_transaction UNIQUE (dairy_ref, person_ref,id)
 );
 
 CREATE TABLE payment_details (
@@ -41,7 +43,7 @@ CREATE TABLE payment_details (
   amount_payed INT                            NOT NULL,
   paid_to      VARCHAR(25)                    NOT NULL,
   day          TIMESTAMP                      NOT NULL,
-  CONSTRAINT unique_dairy_id_person_id_payment UNIQUE (dairy_ref, person_ref)
+  CONSTRAINT unique_dairy_id_person_id_payment UNIQUE (dairy_ref, person_ref,id)
 );
 
 CREATE TABLE total_balance (

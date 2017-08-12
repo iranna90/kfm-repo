@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"kmf-repo/balance"
 	"kmf-repo/dairy"
+	"github.com/gorilla/mux"
 )
 
 type NotFoundError string
@@ -21,17 +22,20 @@ func (n NotFoundError) Error() string {
 
 type Payment struct {
 	Id              int64 `json:"-"`
-	DairyId         string `json:"dairyId"`
-	PersonId        string `json:"personId"`
 	Amount          int64 `json:"amount"`
 	PaidTo          string `json:"paidTo"`
 	Day             time.Time `json:"day"`
-	RemainingAmount int64 `json:"remainingBalance"`
+	RemainingAmount int64 `json:"remainingBalance,omitempty"`
 }
 
 var connection = database.GetDataBaseConnection
 
 func HandlePayment(w http.ResponseWriter, r *http.Request) {
+
+	params := mux.Vars(r)
+	personId := params["personId"]
+	dairyId := params["dairyId"]
+
 	var paymentDetails Payment
 	err := decode(r, &paymentDetails)
 	if err != nil {
@@ -43,16 +47,17 @@ func HandlePayment(w http.ResponseWriter, r *http.Request) {
 	paymentDetails.Day = time.Now()
 	db := connection()
 
-	err = updatePaymentDetails(&paymentDetails, db)
+	err = updatePaymentDetails(dairyId, personId, &paymentDetails, db)
 	if err != nil {
 		switch err.(type) {
 		case NotFoundError:
-			http.Error(w, fmt.Sprintf("Person : %s does not exists", paymentDetails.PersonId), http.StatusNotFound)
+			http.Error(w, fmt.Sprintf("Person : %s does not exists", personId), http.StatusNotFound)
 			break
 		default:
 			http.Error(w, fmt.Sprintf(err.Error()), http.StatusInternalServerError)
 			break
 		}
+		return
 	}
 
 	err = encode(w, &paymentDetails)
@@ -61,14 +66,73 @@ func HandlePayment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func updatePaymentDetails(payment *Payment, db *sql.DB) error {
-	dairy := dairy.FindDairy(payment.DairyId, db)
+func GetPayments(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	personId := params["personId"]
+	dairyId := params["dairyId"]
+
+	db := connection()
+
+	dairy := dairy.FindDairy(dairyId, db)
+	if dairy == nil {
+		log.Println("Dairy for the user does not exists ", dairyId)
+		http.Error(w, fmt.Sprintf("Dairy: %s does not exists", dairyId), http.StatusNotFound)
+		return
+	}
+
+	person := person.FindPerson(dairy.Id, personId, db)
+	if person == nil {
+		log.Println("Person does not exists ", personId)
+		http.Error(w, fmt.Sprintf("Person: %s under Dairy: %s does not exists", personId, dairyId), http.StatusNotFound)
+		return
+	}
+
+	payments, err := getPayments(dairy.Id, person.Id, db)
+	if err != nil {
+		message := "Error while reading all payments for person: "
+		log.Println(message, personId, err)
+		http.Error(w, fmt.Sprintf(message, personId), http.StatusInternalServerError)
+	}
+
+	err = encode(w, payments)
+	if err != nil {
+		message := "Error while writing payments to response"
+		log.Println(message, err)
+		http.Error(w, fmt.Sprintf(message), http.StatusInternalServerError)
+	}
+}
+
+func getPayments(dairyRef, personRef int64, db *sql.DB) ([]Payment, error) {
+	query := "SELECT * FROM payment_details where dairy_ref = $1 and person_ref = $2"
+	rows, err := db.Query(query, dairyRef, personRef)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		payments          []Payment
+		id, dairy, person int64
+		amountPaid        int64
+		paidTo            string
+		day               time.Time
+	)
+
+	for rows.Next() {
+		rows.Scan(&id, &dairy, &person, &amountPaid, &paidTo, &day)
+		payments = append(payments, Payment{Amount: amountPaid, PaidTo: paidTo, Day: day})
+	}
+
+	return payments, nil
+}
+
+func updatePaymentDetails(dairyId, personId string, payment *Payment, db *sql.DB) error {
+	dairy := dairy.FindDairy(dairyId, db)
 	if dairy.Id == 0 {
 		var a NotFoundError = "Dairy not found"
 		return a
 	}
 
-	person := person.FindPerson(dairy.Id, payment.PersonId, db)
+	person := person.FindPerson(dairy.Id, personId, db)
 	if person.Id == 0 {
 		var a NotFoundError = "Person not found"
 		return a
@@ -77,7 +141,7 @@ func updatePaymentDetails(payment *Payment, db *sql.DB) error {
 	// insert payment
 	err := insertPayment(dairy.Id, person.Id, *payment, db)
 	if err != nil {
-		log.Println("Erro while inserting payment details for person : ", person.PersonId)
+		log.Println("Erro while inserting payment details for person : ", personId)
 		return err
 	}
 
@@ -85,7 +149,7 @@ func updatePaymentDetails(payment *Payment, db *sql.DB) error {
 	remainingBalance, err := updateBalance(dairy.Id, person.Id, *payment, db)
 
 	if err != nil {
-		log.Println(fmt.Sprintf("Erro while updating remaining balance after payment : %d for person : %s", payment.Id, person.PersonId))
+		log.Println(fmt.Sprintf("Erro while updating remaining balance after payment : %d for person : %s", payment.Id, personId))
 		return err
 	}
 

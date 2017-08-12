@@ -16,8 +16,6 @@ import (
 
 type Person struct {
 	Id          int64 `json:"-"`
-	DairyId     string `json:"dairyId"`
-	PersonId    string `json:"personId"`
 	FirstName   string `json:"firstName"`
 	LastName    string `json:"lastName"`
 	LastUpdated time.Time `json:"lastUpdated"`
@@ -42,7 +40,7 @@ func HandleGetPerson(w http.ResponseWriter, r *http.Request) {
 
 	db := dataBaseConnection()
 	dairy := dairy.FindDairy(dairyId, db)
-	if dairy.Id == 0 {
+	if dairy == nil {
 		http.Error(w, fmt.Sprintf("Dairy deos not exists"), http.StatusNotFound)
 		return
 	}
@@ -61,6 +59,9 @@ func HandleGetPerson(w http.ResponseWriter, r *http.Request) {
 }
 
 func HandlerCreateOrUpdatePerson(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	personId := params["personId"]
+	dairyId := params["dairyId"]
 	defer r.Body.Close()
 	var person Person
 
@@ -72,7 +73,7 @@ func HandlerCreateOrUpdatePerson(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := dataBaseConnection()
-	dairy := dairy.FindDairy(person.DairyId, db)
+	dairy := dairy.FindDairy(dairyId, db)
 
 	if dairy == nil {
 		log.Println("Please check dairy details are correct", err)
@@ -80,19 +81,19 @@ func HandlerCreateOrUpdatePerson(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	retrievedPerson := FindPerson(dairy.Id, person.PersonId, db)
+	retrievedPerson := FindPerson(dairy.Id, personId, db)
 
 	person.LastUpdated = time.Now()
 
 	// check person exists
 	if retrievedPerson != nil {
 		// update
-		log.Println("Person ", person.PersonId, "already exists, So updating it")
-		err = updatePerson(dairy.Id, &person, db)
+		log.Println("Person ", personId, "already exists, So updating it")
+		err = updatePerson(dairy.Id, personId, &person, db)
 	} else {
 		// insert
-		log.Println("Person ", person.PersonId, "does not exists, So inserting it")
-		_, err = insertPerson(dairy.Id, &person, db)
+		log.Println("Person ", personId, "does not exists, So inserting it")
+		_, err = insertPerson(dairy.Id, personId, &person, db)
 	}
 
 	if err != nil {
@@ -132,42 +133,43 @@ func FindPerson(dairyRef int64, personId string, db *DB) (*Person) {
 		person_id, first_name, last_name string
 		last_update                      time.Time
 	)
-	err := result.Scan(&id, &person_id, &first_name, &last_name, &last_update)
+	err := result.Scan(&id, &dairyRef, &person_id, &first_name, &last_name, &last_update)
 	if err != nil {
+		log.Println("Person not found because ", err)
 		return person
 	}
-	person = &Person{Id: id, PersonId: person_id, FirstName: first_name, LastName: last_name, LastUpdated: last_update}
+	person = &Person{Id: id, FirstName: first_name, LastName: last_name, LastUpdated: last_update}
 
 	return person
 }
 
-func insertPerson(dairyRef int64, person *Person, db *DB) (int64, error) {
+func insertPerson(dairyRef int64, personId string, person *Person, db *DB) (int64, error) {
 	var id int64
 	err := db.QueryRow("INSERT INTO persons(dairy_ref, person_id,first_name,last_name,last_updated) VALUES($1,$2,$3, $4, $5) returning id;",
-		dairyRef, person.PersonId, person.FirstName, person.LastName, person.LastUpdated).Scan(&id)
+		dairyRef, personId, person.FirstName, person.LastName, person.LastUpdated).Scan(&id)
 
 	if err != nil {
-		return id, PersonError{person.PersonId, fmt.Sprintf("Error while inserting person %s", err.Error())}
+		return id, PersonError{personId, fmt.Sprintf("Error while inserting person %s", err.Error())}
 	}
 
-	err = balance.CreateRecord(id)
+	err = balance.CreateRecord(dairyRef, id)
 
 	if err != nil {
-		return id, PersonError{person.PersonId, fmt.Sprintf("Error while inserting initial balance record %s", err.Error())}
+		return id, PersonError{personId, fmt.Sprintf("Error while inserting initial balance record %s", err.Error())}
 	}
 
 	log.Println("Person and Initial balance for person are successfully created")
 	return id, err
 }
 
-func updatePerson(dairyRef int64, person *Person, db *DB) (err error) {
+func updatePerson(dairyRef int64, personId string, person *Person, db *DB) (err error) {
 	query := "UPDATE persons SET first_name = $1, last_name = $2, last_updated = $3 WHERE person_id =$4 and dairy_ref = $5"
 	stmt, err := db.Prepare(query)
 	if err != nil {
-		log.Println("Error while creating statement to update person", person.PersonId, err)
+		log.Println("Error while creating statement to update person", personId, err)
 		return
 	}
-	_, err = stmt.Exec(person.FirstName, person.LastName, person.LastUpdated, person.PersonId, dairyRef)
+	_, err = stmt.Exec(person.FirstName, person.LastName, person.LastUpdated, personId, dairyRef)
 
 	return
 }

@@ -28,11 +28,9 @@ func HandlerCreateOrUpdateDairy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := dataBaseConnection()
-
 	retrievedDairy := FindDairy(dairy.DairyId, db)
-
 	// check person exists
-	if retrievedDairy.Id != 0 {
+	if retrievedDairy != nil {
 		// update
 		log.Println("Dairy ", dairy.DairyId, "already exists,Update is not supported")
 		http.Error(w, fmt.Sprintf("Dairy with id : %s already exists", dairy.DairyId), http.StatusConflict)
@@ -58,7 +56,7 @@ func HandlerCreateOrUpdateDairy(w http.ResponseWriter, r *http.Request) {
 
 func insertDairyRecord(dairy *Dairy, db *DB) (error) {
 	var id int64
-	err := db.QueryRow("INSERT INTO dairy(dairy_id) VALUES($1) returning id;", dairy.DairyId).Scan(id);
+	err := db.QueryRow("INSERT INTO dairy(dairy_id) VALUES($1) returning id;", dairy.DairyId).Scan(&id);
 	return err
 }
 
@@ -67,9 +65,9 @@ func FindDairy(dairyId string, db *DB) (*Dairy) {
 	var dairy *Dairy
 	result := db.QueryRow("select * from dairy where dairy_id = $1", dairyId)
 	var id int64
-	err := result.Scan(&id)
+	err := result.Scan(&id, &dairyId)
 	if err != nil {
-		log.Fatalln("Error while retrieving dairy details", err)
+		log.Println("Error while retrieving dairy details", err)
 		return dairy
 	}
 
