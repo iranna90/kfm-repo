@@ -12,6 +12,7 @@ import (
 	"kmf-repo/balance"
 	"kmf-repo/dairy"
 	"github.com/gorilla/mux"
+	"strings"
 )
 
 type DailyMilkTransaction struct {
@@ -21,6 +22,13 @@ type DailyMilkTransaction struct {
 	Balance         int64 `json:"balance,omitempty"`
 	Day             time.Time `json:"time"`
 	PersonName      string `json:"personName"`
+}
+
+type DairyTransactions struct {
+	DailyMilkTransaction
+	PersonId  string `json:"personId,omitempty"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
 }
 
 type TransactionError struct {
@@ -100,6 +108,79 @@ func GetAllTransaction(w http.ResponseWriter, r *http.Request) {
 		log.Println(message, err)
 		http.Error(w, fmt.Sprintf(message), http.StatusInternalServerError)
 	}
+}
+
+func GetAllTransactionOfDairy(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	dairyId := params["dairyId"]
+
+	from, err := time.Parse(time.RFC3339, strings.Replace(r.URL.Query().Get("from"), " ", "+", 1))
+	if err != nil {
+		message := "invalid From date, So please provide valid date as query parameters"
+		log.Println(message, err)
+		http.Error(w, message, http.StatusBadRequest)
+		return
+	}
+
+	to, err := time.Parse(time.RFC3339, strings.Replace(r.URL.Query().Get("to"), " ", "+", 1))
+	if err != nil {
+		message := "invalid To date , So please provide valid to date as query parameters"
+		log.Println(message, err)
+		http.Error(w, message, http.StatusBadRequest)
+		return
+	}
+
+	db := connection()
+
+	dairy := dairy.FindDairy(dairyId, db)
+	if dairy == nil {
+		log.Println("Dairy for the user does not exists ", dairyId)
+		http.Error(w, fmt.Sprintf("Dairy: %s does not exists", dairyId), http.StatusNotFound)
+		return
+	}
+
+	query := "select p.person_id, p.first_name, p.last_name, tr.person_name, tr.number_of_liters, tr.total_price_of_day, tr.day " +
+		"from persons p inner join daily_transactions tr " +
+		"on p.dairy_ref = $1 " +
+		"and p.id = tr.person_ref " +
+		"and tr.day between $2 and  $3 order by tr.day DESC"
+
+	var (
+		personDetails                         []DairyTransactions
+		amount                                int
+		liters                                int8
+		personId, firstName, lastName, paidTo string
+		date                                  time.Time
+	)
+
+	rows, err := db.Query(query, dairy.Id, from, to)
+
+	if err != nil {
+		message := "Error while reading transactions records for dairy: %s, strat date: %s and end date: %s"
+		log.Println(fmt.Sprintf(message, dairyId, from, to), err)
+		http.Error(w, fmt.Sprintf(message, dairyId, from, to), http.StatusInternalServerError)
+		return
+	}
+
+	for rows.Next() {
+		rows.Scan(&personId, &firstName, &lastName, &paidTo, &liters, &amount, &date)
+		personDetails = append(personDetails, DairyTransactions{DailyMilkTransaction: DailyMilkTransaction{PersonName: paidTo, TotalPriceOfDay: amount, NumberOfLiters: liters, Day: date}, PersonId: personId, FirstName: firstName, LastName: lastName})
+	}
+
+	if len(personDetails) == 0 {
+		message := "No transactions found from %s to %s for dairy %s"
+		log.Println(fmt.Sprintf(message, from, to, dairyId))
+		http.Error(w, fmt.Sprintf(message, from, to, dairyId), http.StatusNotFound)
+		return
+	}
+
+	err = encode(w, personDetails)
+	if err != nil {
+		message := "Erorr while writing response "
+		log.Println(message, err)
+		http.Error(w, fmt.Sprintf("Error while writing response for dairy: %s", dairyId), http.StatusInternalServerError)
+	}
+
 }
 
 func getAllTransaction(dairyRef, personRef int64, connection *sql.DB) ([]DailyMilkTransaction, error) {

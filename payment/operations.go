@@ -12,6 +12,7 @@ import (
 	"kmf-repo/balance"
 	"kmf-repo/dairy"
 	"github.com/gorilla/mux"
+	"strings"
 )
 
 type NotFoundError string
@@ -26,6 +27,13 @@ type Payment struct {
 	PaidTo          string `json:"paidTo"`
 	Day             time.Time `json:"day"`
 	RemainingAmount int64 `json:"remainingBalance,omitempty"`
+}
+
+type PersonsPayment struct {
+	Payment
+	PersonId  string `json:"personId,omitempty"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
 }
 
 var connection = database.GetDataBaseConnection
@@ -166,6 +174,68 @@ func insertPayment(dairyRef int64, personRef int64, payment Payment, db *sql.DB)
 	query := "INSERT INTO payment_details(dairy_ref, person_ref, amount_payed, paid_to, day) VALUES ($1,$2,$3,$4, $5)"
 	_, err := db.Exec(query, dairyRef, personRef, payment.Amount, payment.PaidTo, payment.Day)
 	return err
+}
+
+func GetPersonsPayments(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("entered")
+	params := mux.Vars(r)
+	dairyId := params["dairyId"]
+	from, err := time.Parse(time.RFC3339, strings.Replace(r.URL.Query().Get("from"), " ", "+", 1))
+	if err != nil {
+		message := "invalid From date, So please provide valid date as query parameters"
+		log.Println(message, err)
+		http.Error(w, message, http.StatusBadRequest)
+		return
+	}
+
+	to, err := time.Parse(time.RFC3339, strings.Replace(r.URL.Query().Get("to"), " ", "+", 1))
+	if err != nil {
+		message := "invalid To date , So please provide valid to date as query parameters"
+		log.Println(message, err)
+		http.Error(w, message, http.StatusBadRequest)
+		return
+	}
+
+	db := connection()
+	query := "select p.person_id, p.first_name, p.last_name, pay.amount_payed, pay.paid_to, pay.day " +
+		"from persons p inner join payment_details pay " +
+		"on p.dairy_ref = (SELECT id from dairy d WHERE d.dairy_id = $1)" +
+		" and p.id = pay.person_ref " +
+		"and pay.day between $2 and  $3 " +
+		"order by pay.day DESC"
+	var (
+		personDetails                         []PersonsPayment
+		amount                                int64
+		personId, firstName, lastName, paidTo string
+		date                                  time.Time
+	)
+
+	rows, err := db.Query(query, dairyId, from, to)
+
+	if err != nil {
+		message := "Error while reading payments records for dairy: %s, strat date: %s and end date: %s"
+		log.Println(fmt.Sprintf(message, dairyId, from, to), err)
+		http.Error(w, fmt.Sprintf(message, dairyId, from, to), http.StatusInternalServerError)
+		return
+	}
+
+	for rows.Next() {
+		rows.Scan(&personId, &firstName, &lastName, &amount, &paidTo, &date)
+		personDetails = append(personDetails, PersonsPayment{Payment: Payment{Amount: amount, PaidTo: paidTo, Day: date}, PersonId: personId, FirstName: firstName, LastName: lastName})
+	}
+
+	if len(personDetails) == 0 {
+		message := "No payments found from %s to %s for dairy %s"
+		log.Println(fmt.Sprintf(message, from, to, dairyId))
+		http.Error(w, fmt.Sprintf(message, from, to, dairyId), http.StatusNotFound)
+		return
+	}
+
+	err = encode(w, personDetails)
+	if err != nil {
+		log.Println("Erorr while writing response ", err)
+		http.Error(w, fmt.Sprintf("Error while writing response for dairy: %s", dairyId), http.StatusInternalServerError)
+	}
 }
 
 func decode(r *http.Request, dataType interface{}) (err error) {

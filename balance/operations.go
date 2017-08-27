@@ -17,6 +17,13 @@ type Balance struct {
 	Modified time.Time `json:"lastUpdated"`
 }
 
+type PersonBalance struct {
+	PersonId  string `json:"personId"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Amount    int64 `json:"amount"`
+}
+
 var connection = database.GetDataBaseConnection
 
 func CreateRecord(dairyRef int64, personRef int64) error {
@@ -66,6 +73,44 @@ func GetBalance(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Println("Erorr while writing response ", err)
 		http.Error(w, fmt.Sprintf("Error while writing response for person: %s", personId), http.StatusInternalServerError)
+	}
+}
+
+func GetPersonsBalance(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	dairyId := params["dairyId"]
+
+	db := connection()
+	query := "select p.person_id, p.first_name, p.last_name, b.amount from persons p inner join total_balance b on p.dairy_ref = (SELECT id from dairy d WHERE d.dairy_id = $1) and p.id = b.person_ref"
+	var (
+		personDetails                 []PersonBalance
+		amount                        int64
+		personId, firstName, lastName string
+	)
+
+	rows, err := db.Query(query, dairyId)
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error while reading balance records for dairy: %s", dairyId), http.StatusInternalServerError)
+		return
+	}
+
+	for rows.Next() {
+		rows.Scan(&personId, &firstName, &lastName, &amount)
+		personDetails = append(personDetails, PersonBalance{PersonId: personId, FirstName: firstName, LastName: lastName, Amount: amount})
+	}
+
+	if len(personDetails) == 0 {
+		message := "No balance found for dairy %s"
+		log.Println(fmt.Sprintf(message, dairyId))
+		http.Error(w, fmt.Sprintf(message, dairyId), http.StatusNotFound)
+		return
+	}
+
+	err = encode(w, personDetails)
+	if err != nil {
+		log.Println("Erorr while writing response ", err)
+		http.Error(w, fmt.Sprintf("Error while writing response for dairy: %s", dairyId), http.StatusInternalServerError)
 	}
 }
 

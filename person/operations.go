@@ -16,9 +16,10 @@ import (
 
 type Person struct {
 	Id          int64 `json:"-"`
+	PersonId    string `json:"personId,omitempty"`
 	FirstName   string `json:"firstName"`
 	LastName    string `json:"lastName"`
-	LastUpdated time.Time `json:"lastUpdated"`
+	LastUpdated time.Time `json:"lastUpdated,omitempty"`
 }
 
 type PersonError struct {
