@@ -16,12 +16,13 @@ import (
 )
 
 type DailyMilkTransaction struct {
-	Id              int64 `json:"-"`
-	NumberOfLiters  int8 `json:"numberOfLiters"`
-	TotalPriceOfDay int `json:"totalPriceOfTheDay"`
-	Balance         int64 `json:"balance,omitempty"`
-	Day             time.Time `json:"time"`
-	PersonName      string `json:"personName"`
+	Id             int64 `json:"id"`
+	NumberOfLiters int `json:"numberOfLiters"`
+	Amount         int `json:"amount"`
+	Balance        int64 `json:"closingBalance,omitempty"`
+	Day            time.Time `json:"day"`
+	Type           string `json:"transactionType"`
+	PersonName     string `json:"personName"`
 }
 
 type DairyTransactions struct {
@@ -36,11 +37,14 @@ type TransactionError struct {
 	message  string
 }
 
+const (
+	PAID    = "PAID"
+	DEPOSIT = "DEPOSIT"
+)
+
 func (t TransactionError) Error() string {
 	return fmt.Sprintf("Error while doing operation for person : %s and error details are %s", t.personId, t.message)
 }
-
-var pricePerLiter = 41
 
 var connection = database.GetDataBaseConnection
 
@@ -61,7 +65,7 @@ func HandleMilkSubmission(w http.ResponseWriter, r *http.Request) {
 
 	// insert the transaction details
 	db := connection()
-	err = updateTransaction(dairyId, personId, &transactionDetails, db)
+	err = newTransaction(dairyId, personId, &transactionDetails, db)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Erro while updating balance: %s", err.Error()), http.StatusInternalServerError)
 		return
@@ -78,6 +82,13 @@ func GetAllTransaction(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	personId := params["personId"]
 	dairyId := params["dairyId"]
+	limit := r.URL.Query()["limit"]
+	offset := r.URL.Query()["offset"]
+
+	if limit == nil || len(limit) == 0 || offset == nil || len(offset) == 0 {
+		http.Error(w, "Unable to retrieve limit or offset from the request", http.StatusBadRequest)
+		return
+	}
 
 	db := connection()
 
@@ -95,11 +106,15 @@ func GetAllTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	transactions, err := getAllTransaction(dairy.Id, person.Id, db)
+	transactions, err := getAllTransaction(limit[0], offset[0], dairy.Id, person.Id, db)
 	if err != nil {
 		message := "Error while reading all transactions for person: "
 		log.Println(message, personId, err)
 		http.Error(w, fmt.Sprintf(message, personId), http.StatusInternalServerError)
+	}
+
+	if transactions == nil {
+		transactions = make([]DailyMilkTransaction, 0)
 	}
 
 	err = encode(w, transactions)
@@ -139,18 +154,18 @@ func GetAllTransactionOfDairy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := "select p.person_id, p.first_name, p.last_name, tr.person_name, tr.number_of_liters, tr.total_price_of_day, tr.day " +
-		"from persons p inner join daily_transactions tr " +
+	query := "select p.person_id, p.first_name, p.last_name, tr.person_name, tr.number_of_liters, tr.total_price_of_day, tr.day, tr.transaction_type" +
+		"from persons p inner join transactions tr " +
 		"on p.dairy_ref = $1 " +
 		"and p.id = tr.person_ref " +
 		"and tr.day between $2 and  $3 order by tr.day DESC"
 
 	var (
-		personDetails                         []DairyTransactions
-		amount                                int
-		liters                                int8
-		personId, firstName, lastName, paidTo string
-		date                                  time.Time
+		personDetails                                          []DairyTransactions
+		amount                                                 int
+		liters                                                 int
+		personId, firstName, lastName, paidTo, transactionType string
+		date                                                   time.Time
 	)
 
 	rows, err := db.Query(query, dairy.Id, from, to)
@@ -163,8 +178,8 @@ func GetAllTransactionOfDairy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for rows.Next() {
-		rows.Scan(&personId, &firstName, &lastName, &paidTo, &liters, &amount, &date)
-		personDetails = append(personDetails, DairyTransactions{DailyMilkTransaction: DailyMilkTransaction{PersonName: paidTo, TotalPriceOfDay: amount, NumberOfLiters: liters, Day: date}, PersonId: personId, FirstName: firstName, LastName: lastName})
+		rows.Scan(&personId, &firstName, &lastName, &paidTo, &liters, &amount, &date, &transactionType)
+		personDetails = append(personDetails, DairyTransactions{DailyMilkTransaction: DailyMilkTransaction{PersonName: paidTo, Amount: amount, NumberOfLiters: liters, Day: date, Type: transactionType}, PersonId: personId, FirstName: firstName, LastName: lastName})
 	}
 
 	if len(personDetails) == 0 {
@@ -183,34 +198,43 @@ func GetAllTransactionOfDairy(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func getAllTransaction(dairyRef, personRef int64, connection *sql.DB) ([]DailyMilkTransaction, error) {
-	query := "SELECT * FROM daily_transactions where dairy_ref = $1 and person_ref = $2"
-	rows, err := connection.Query(query, dairyRef, personRef)
+func getAllTransaction(limit, offset string, dairyRef, personRef int64, connection *sql.DB) ([]DailyMilkTransaction, error) {
+	query := "SELECT * FROM transactions tr where dairy_ref = $1 and person_ref = $2 ORDER BY  tr.day DESC LIMIT $3 OFFSET $4"
+	rows, err := connection.Query(query, dairyRef, personRef, limit, offset)
 	if err != nil {
 		return nil, err
 	}
 
 	var (
-		transactions      []DailyMilkTransaction
-		id, dairy, person int64
-		numberOfListers   int8
-		totalPrice        int
-		day               time.Time
-		personName        string
+		transactions                       []DailyMilkTransaction
+		id, dairy, person, remainingAmount int64
+		numberOfListers                    int
+		totalPrice                         int
+		day                                time.Time
+		personName, transactionType        string
 	)
 
 	for rows.Next() {
-		rows.Scan(&id, &dairy, &person, &numberOfListers, &totalPrice, &day, &personName)
-		transactions = append(transactions, DailyMilkTransaction{NumberOfLiters: numberOfListers, TotalPriceOfDay: totalPrice, Day: day, PersonName: personName})
+		rows.Scan(&id, &dairy, &person, &numberOfListers, &totalPrice, &remainingAmount, &day, &personName, &transactionType)
+		transactions = append(transactions,
+			DailyMilkTransaction{
+				Id:             id,
+				NumberOfLiters: numberOfListers,
+				Amount:         totalPrice,
+				Day:            day,
+				PersonName:     personName,
+				Type:           transactionType,
+				Balance:        remainingAmount})
 	}
 
 	return transactions, nil
 }
 
-func updateTransaction(dairyId, personId string, transaction *DailyMilkTransaction, db *sql.DB, ) (err error) {
+func newTransaction(dairyId, personId string, transaction *DailyMilkTransaction, db *sql.DB, ) (err error) {
 	// insert record
-	err = calculatePriceOfMilk(transaction)
-	if err != nil {
+	log.Println("transaction type is ", transaction.Type)
+	if transaction.Type != PAID && transaction.Type != DEPOSIT {
+		err = TransactionError{dairyId, "Only operation supported are PAID or DEPOSIT"}
 		return
 	}
 
@@ -226,43 +250,33 @@ func updateTransaction(dairyId, personId string, transaction *DailyMilkTransacti
 		return
 	}
 
+	var totalBalance int64
+	if transaction.Type == PAID {
+		log.Println("Transaction type is payment for user ", personId, " Amount is:", transaction.Amount)
+		totalBalance, err = balance.RemovePayedAmountFromTotalBalance(dairy.Id, person.Id, transaction.Amount, db)
+	} else {
+		log.Println("Transaction type is deposit for user ", personId, " Amount is:", transaction.Amount)
+		totalBalance, err = balance.AddAmountToTotalBalance(dairy.Id, person.Id, transaction.Amount, db)
+	}
+
+	if err != nil {
+		return
+	}
+	transaction.Balance = int64(totalBalance)
 	transaction.Day = time.Now()
-	err = insertTransaction(dairy.Id, person.Id, transaction, db)
+	id, err := insertTransaction(dairy.Id, person.Id, transaction, db)
 	if err != nil {
 		return
 	}
-
-	// update total balance
-	balance, err := balance.AddAmountToTotalBalance(dairy.Id, person.Id, transaction.TotalPriceOfDay, db)
-	if err != nil {
-		// TODO : Define user error
-		return
-	}
-	transaction.Balance = int64(balance)
-
+	transaction.Id = id
 	return
 }
 
-func insertTransaction(dairyRef, personRef int64, transaction *DailyMilkTransaction, db *sql.DB) (err error) {
-	query := "INSERT INTO daily_transactions(dairy_ref, person_ref, number_of_liters, total_price_of_day, day, person_name) VALUES ($1,$2,$3,$4,$5, $6)"
-	_, err = db.Exec(query, dairyRef, personRef, transaction.NumberOfLiters, transaction.TotalPriceOfDay, transaction.Day, transaction.PersonName)
-	return
-}
-
-type TotalCalculationError string
-
-func (t TotalCalculationError) Error() string {
-	return t.Error()
-}
-
-func calculatePriceOfMilk(transaction *DailyMilkTransaction) (err error) {
-	if transaction.NumberOfLiters <= 0 {
-		var t TotalCalculationError = "Number of liters should always be greater then 0"
-		err = t
-		return err
-	}
-	transaction.TotalPriceOfDay = int(transaction.NumberOfLiters) * pricePerLiter
-	return
+func insertTransaction(dairyRef, personRef int64, transaction *DailyMilkTransaction, db *sql.DB) (id int64, err error) {
+	var transactionId int64
+	query := "INSERT INTO transactions(dairy_ref, person_ref, number_of_liters, amount, remaining_total, day, person_name, transaction_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id"
+	err = db.QueryRow(query, dairyRef, personRef, transaction.NumberOfLiters, transaction.Amount, transaction.Balance, transaction.Day, transaction.PersonName, transaction.Type).Scan(&transactionId)
+	return transactionId, err
 }
 
 func decode(r *http.Request, dataType interface{}) (err error) {

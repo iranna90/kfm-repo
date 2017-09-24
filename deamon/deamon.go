@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"log"
 	"kmf-repo/dailymilk"
-	"kmf-repo/payment"
 	"kmf-repo/dairy"
 	"kmf-repo/balance"
 )
@@ -21,9 +20,6 @@ func main() {
 	route.HandleFunc("/kmf/dairies/{dairyId}/persons/{personId}/transactions", dailymilk.HandleMilkSubmission).Methods("POST")
 	route.HandleFunc("/kmf/dairies/{dairyId}/persons/{personId}/transactions", dailymilk.GetAllTransaction).Methods("GET")
 	route.HandleFunc("/kmf/dairies/{dairyId}/transactions", dailymilk.GetAllTransactionOfDairy).Methods("GET")
-	route.HandleFunc("/kmf/dairies/{dairyId}/persons/{personId}/payments", payment.HandlePayment).Methods("POST")
-	route.HandleFunc("/kmf/dairies/{dairyId}/persons/{personId}/payments", payment.GetPayments).Methods("GET")
-	route.HandleFunc("/kmf/dairies/{dairyId}/payments", payment.GetPersonsPayments).Methods("GET")
 	log.Println("Starting server")
 	http.ListenAndServe(":1234", route)
 }

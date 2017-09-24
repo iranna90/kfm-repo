@@ -9,7 +9,6 @@ import (
 	"kmf-repo/database"
 	"database/sql"
 	"fmt"
-	"kmf-repo/balance"
 	"kmf-repo/dairy"
 	"github.com/gorilla/mux"
 	"strings"
@@ -24,7 +23,7 @@ func (n NotFoundError) Error() string {
 type Payment struct {
 	Id              int64 `json:"-"`
 	Amount          int64 `json:"amount"`
-	PaidTo          string `json:"paidTo"`
+	PaidTo          string `json:"personName"`
 	Day             time.Time `json:"day"`
 	RemainingAmount int64 `json:"remainingBalance,omitempty"`
 }
@@ -166,7 +165,7 @@ func updatePaymentDetails(dairyId, personId string, payment *Payment, db *sql.DB
 }
 
 func updateBalance(dairyRef int64, personRef int64, payment Payment, db *sql.DB) (remainingBalance int64, err error) {
-	remainingBalance, err = balance.RemovePayedAmountFromTotalBalance(dairyRef, personRef, payment.Amount, db)
+//	remainingBalance, err = balance.RemovePayedAmountFromTotalBalance(dairyRef, personRef, payment.Amount, db)
 	return
 }
 
