@@ -90,9 +90,9 @@ func GetPersonsBalance(w http.ResponseWriter, r *http.Request) {
 			"ON p.dairy_ref = (SELECT id FROM dairy d WHERE d.dairy_id = $1) " +
 			"AND p.id = b.person_ref " +
 			"AND (" +
-				"p.person_id LIKE '%"+queryString[0]+"%' " +
-				"OR p.first_name LIKE '%"+queryString[0]+"%' " +
-				"OR p.last_name LIKE '%"+queryString[0]+"%'" +
+			"p.person_id LIKE '%" + queryString[0] + "%' " +
+			"OR p.first_name LIKE '%" + queryString[0] + "%' " +
+			"OR p.last_name LIKE '%" + queryString[0] + "%'" +
 			") " +
 			"ORDER BY p.last_updated DESC;"
 		rows, err = db.Query(query, dairyId)
@@ -131,10 +131,7 @@ func GetPersonsBalance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(personDetails) == 0 {
-		message := "No balance found for dairy %s"
-		log.Println(fmt.Sprintf(message, dairyId))
-		http.Error(w, fmt.Sprintf(message, dairyId), http.StatusNotFound)
-		return
+		personDetails = make([]PersonBalance, 0)
 	}
 
 	err = encode(w, personDetails)

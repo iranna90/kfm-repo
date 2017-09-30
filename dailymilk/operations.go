@@ -71,11 +71,26 @@ func HandleMilkSubmission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = encode(w, transactionDetails)
+	storedTransaction := getTransaction(transactionDetails.Id, db)
+	err = encode(w, &storedTransaction)
 	if err != nil {
 		http.Error(w, "Unable to encode response to json", http.StatusInternalServerError)
 	}
 	log.Println("Successfully updated the balance")
+}
+
+func getTransaction(trId int64, connection *sql.DB) DailyMilkTransaction {
+	query := "SELECT * FROM transactions tr where id = $1"
+	var (
+		id, dairy, person, remainingAmount int64
+		numberOfListers, totalPrice        int
+		day                                time.Time
+		personName, transactionType        string
+	)
+
+	connection.QueryRow(query, trId).Scan(&id, &dairy, &person, &numberOfListers, &totalPrice, &remainingAmount, &day, &personName, &transactionType)
+	tr := DailyMilkTransaction{Id: id, NumberOfLiters: numberOfListers, Amount: totalPrice, Day: day, PersonName: personName, Type: transactionType, Balance: remainingAmount}
+	return tr
 }
 
 func GetAllTransaction(w http.ResponseWriter, r *http.Request) {
